@@ -357,7 +357,7 @@ void gameRoom(){
 				// 서버가 결과를 판단할 동안 대기
 				usleep(100000);
 			
-				// 
+				// 승리 했을 경우 승리 메세지 출력 후 종료
 				if(shared_mem->game_msg.result == 1){
 					mvprintw(yStart + 15 , xStart, "Win!!!");
 					refresh();
@@ -381,32 +381,39 @@ void gameRoom(){
 }
 
 void initMenu(){
-	initNcurses();
+	initNcurses();		// ncurses 초기화
 
+	// 선택 메뉴
 	char* select[] = {"Game Start", "Exit"};
 
+	// (8, 4)부터 시작
 	int xStart = 8, yStart = 4;
 	int highlight = 0;
 	int c, i;
 
+	// 메뉴 윈도우 생성
 	WINDOW *menu_win;
-	
 	menu_win = newwin(6, 21, yStart,  xStart);
-
 	box(menu_win, 0, 0);
 
+	// 키보드 입력 허용
 	keypad(menu_win, TRUE);
 	
+	// 메뉴 윈도우의 내용 입력
 	wattron(menu_win, A_BOLD);
 	mvwprintw(menu_win, 0, 6, "Omok Game");
 	wattroff(menu_win, A_BOLD);
+	
+	// 화면 새로고침
 	refresh();
 	wrefresh(menu_win);
 
 	while(1){
+		// 화면 새로고침
 		refresh();
 		wrefresh(menu_win);
 
+		// 사용자가 선택한 메뉴 선택
 		for(i = 0; i < 2; i++){
 			if(highlight == i)
 				wattron(menu_win, A_REVERSE);
@@ -415,8 +422,10 @@ void initMenu(){
 			wattroff(menu_win, A_REVERSE);
 		}
 
+		// 사용자의 입력 받음
 		c = wgetch(menu_win);
 
+		// 사용자의 키보드 입력에 따라 표시
 		switch(c){
 			case KEY_UP:
 				if(highlight == 0) highlight = 1;
@@ -429,12 +438,15 @@ void initMenu(){
 			default:
 				break;
 		}
+		// 사용자가 엔터를 눌렀으면 무한루프 종료
 		if(c == 10 || c == ' ') break;
 	}
 	
+	// 선택한 메뉴가 Game Start면 대기실로 이동
 	if(highlight == 0)
         	waitingRoom();
         
+	// 선택한 메뉴가 Exit이면 프로그램 종료
 	else{
         	endwin();
         	return;
