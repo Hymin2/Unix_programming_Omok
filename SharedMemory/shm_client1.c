@@ -34,7 +34,7 @@ WINDOW* waiting_player2_status;
 
 int main(){	
 	semid = initsem(SEMKEY);	// 세마포어 초기화
-	initshm(SHMKEY);		// 공유 메모리 초기화
+	initshm();		// 공유 메모리 초기화
 	initMenu();			// 초기 메뉴 화면 
 	
 	return 0;
