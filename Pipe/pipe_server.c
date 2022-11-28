@@ -30,7 +30,6 @@ typedef struct gameroom_msg{
 	int row;
 	int col;
 	int my_turn;
-	int turn_end;
 	int result;
 	char omok_board[ROW][COLUMN];
 }game_msg;
@@ -44,6 +43,8 @@ typedef struct data_msg{
 
 void* waitingRoomDataCommunication();
 void printRatingTransferRate(struct timespec start);
+void* gameRoomDataCommunication();
+void* judgeOmok(void* g);
 
 data_msg send_msg;
 data_msg recv_msg;
@@ -153,117 +154,59 @@ void printRatingTransferRate(struct timespec start){
 
 void* gameRoomDataCommunication(){
 	void* ret;
-	int turn;
+	int end = 0;
 	pthread_t judge_thread;
 
-	while(1){
-
+	while(end == 0){
 		for(int i = 0; i < 2; i++){
-			send_msg.g_msg.my_turn = 1;	
-		}
-
-
-		while(1){
-			if(shared_mem1->game_msg.turn_end == 1){
-				clock_gettime(CLOCK_MONOTONIC, &shared_mem1->stop);
-	                        accum = (shared_mem1->stop.tv_sec - shared_mem1->start.tv_sec) + (double)(shared_mem1->stop.tv_nsec - shared_mem1->start.tv_nsec) / (double)BILLION;
-        	                printf("%.9f\n",accum);
-
-				p(semid2);
-				shared_mem2->game_msg.omok_board[shared_mem1->game_msg.row][shared_mem1->game_msg.col] = 'X';
-				shared_mem2->game_msg.my_turn = 1;
-				v(semid2);
-
-				p(semid1);
-				shared_mem1->game_msg.my_turn = 0;
-				shared_mem1->game_msg.turn_end = 0;
-				v(semid1);
-
-				turn = 1;
-
-				pthread_create(&judge_thread, NULL, judgeOmok, (void*)&turn);
-				pthread_join(judge_thread,(void*) &ret);
-
-				break;
+			send_msg.g_msg.my_turn = 1;
+			write(write_fd[i], &send_msg, sizeof(send_msg));
+			if(read(read_fd, &recv_msg, sizeof(recv_msg)) == -1){
+				printf("read_fd error\n");
 			}
-		}
+			else{
+				printRatingTransferRate(recv_msg.start);
 
-		if(*(int*)ret == 1){
-			p(semid1);
-			shared_mem1->game_msg.result = 1;
-			v(semid1);
-
-			p(semid2);
-                        shared_mem2->game_msg.result = 2;
-                        v(semid2);
-
-			break;
-		}
-
-		while(1){
-                        if(shared_mem2->game_msg.turn_end == 1){
-                 		clock_gettime(CLOCK_MONOTONIC, &shared_mem2->stop);
-        	                accum = (shared_mem2->stop.tv_sec - shared_mem2->start.tv_sec) + (double)(shared_mem2->stop.tv_nsec - shared_mem2->start.tv_nsec) / (double)BILLION;
-	                        printf("%.9f\n",accum);
-
-		 		p(semid1);
-                                shared_mem1->game_msg.omok_board[shared_mem2->game_msg.row][shared_mem2->game_msg.col] = 'X';
-                 		shared_mem1->game_msg.my_turn = 1;
-		 		v(semid1);
-
-                                p(semid2);
-                                shared_mem2->game_msg.my_turn = 0;
-                                shared_mem2->game_msg.turn_end = 0;
-                                v(semid2);
-
-				turn = 2;
-
-				pthread_create(&judge_thread, NULL, judgeOmok, (void*)&turn);
+				pthread_create(&judge_thread, NULL, judgeOmok, (void*)&recv_msg.g_msg);
                                 pthread_join(judge_thread,(void*) &ret);
-                                break;
-                        }
-                }
 
-                if(*(int*)ret == 1){
-                        p(semid2);
-                        shared_mem2->game_msg.result = 1;
-                        v(semid2);
+				if(*(int*)ret == 1){
+					send_msg.g_msg.result = 1;
+					write(write_fd[i], &send_msg, sizeof(send_msg));
 
-                        p(semid1);
-                        shared_mem1->game_msg.result = 2;
-                        v(semid1);
+					send_msg.g_msg.row = recv_msg.g_msg.row;
+                                	send_msg.g_msg.col = recv_msg.g_msg.col;
+					send_msg.g_msg.result = 2;
+					write(write_fd[(i + 1) % 2], &send_msg, sizeof(send_msg));
 
-			break;
-                }
+					end = 1;
 
+					break;
+				}
+				else{
+					send_msg.g_msg.row = recv_msg.g_msg.row;
+                                	send_msg.g_msg.col = recv_msg.g_msg.col;
+				}
+			}
+
+		}
 	}
 }
 
-void* judgeOmok(void* turn){
-	int i, k, cnt = 0, t = *((int*)turn);
+void* judgeOmok(void* g){
+	int i, k, cnt = 0;
 	int row, col, ret = 0;
 	char board[ROW][COLUMN];
 
-	if(t == 1){
-		for(i = 0; i < ROW; i++){
-			for(k = 0; k < COLUMN; k++){
-				board[i][k] = shared_mem1->game_msg.omok_board[i][k];
-			}
+	game_msg game= *((game_msg*)g);
+
+	for(i = 0; i < ROW; i++){
+		for(k = 0; k < COLUMN; k++){
+			board[i][k] = game.omok_board[i][k];
 		}
-		row = shared_mem1->game_msg.row;
-		col = shared_mem1->game_msg.col;
 	}
-
-	else{
-		for(i = 0; i < ROW; i++){
-                        for(k = 0; k < COLUMN; k++){
-                                board[i][k] = shared_mem2->game_msg.omok_board[i][k];
-                        }
-                }
-                row = shared_mem2->game_msg.row;
-                col = shared_mem2->game_msg.col;
-
-	}
+	row = game.row;
+	col = game.col;
 
 
 	for(i = 0; i < ROW; i++){
