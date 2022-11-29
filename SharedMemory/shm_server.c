@@ -26,6 +26,7 @@ void* watingRoomDataCommunication();	// 대기실에서 통신을 위한 쓰레�
 void* gameRoomDataCommunication();	// 오목 진행 중 통신을 위한 쓰레드 함수
 void getseg();				// 공유 메모리 부착 함수
 void* judgeOmok(void* turn);		// 오목 판단 쓰레드 함수
+void printRatingTransferRate(struct timespec start);
 
 int main(){
 	// 쓰레드 생성할 변수
@@ -52,6 +53,12 @@ int main(){
 
 	sleep(5);
 
+	if(shmdt(shared_mem1) < 0){
+		printf("shmdt error\n");
+	}
+	if(shmdt(shared_mem2) < 0){
+		printf("shmdt error\n");
+	}
 	// 공유 메모리 및 세마포어 제거 후 종료
 	if(shmctl(shmid1, IPC_RMID, 0) == -1){
 		printf("shmctl error\n");
@@ -65,6 +72,15 @@ int main(){
 	if(semctl(semid2, IPC_RMID, 0) == -1){
                 printf("semctl error\n");
         }
+}
+
+void printRatingTransferRate(struct timespec start){
+        struct timespec end;
+        double accum;
+
+        clock_gettime(CLOCK_MONOTONIC, &end);
+        accum = (end.tv_sec - start.tv_sec) + (double)(end.tv_nsec - start.tv_nsec) / BILLION;
+        printf("%.9f\n",accum);
 }
 
 void getseg(){
@@ -136,9 +152,7 @@ void* gameRoomDataCommunication(){
 	
 		while(1){
 			if(shared_mem1->game_msg.turn_end == 1){
-				clock_gettime(CLOCK_MONOTONIC, &shared_mem1->stop);
-	                        accum = (shared_mem1->stop.tv_sec - shared_mem1->start.tv_sec) + (double)(shared_mem1->stop.tv_nsec - shared_mem1->start.tv_nsec) / (double)BILLION;
-        	                printf("%.9f\n",accum);
+				printRatingTransferRate(shared_mem1->start);
 
 				p(semid2);
 				shared_mem2->game_msg.omok_board[shared_mem1->game_msg.row][shared_mem1->game_msg.col] = 'X';
@@ -173,9 +187,7 @@ void* gameRoomDataCommunication(){
 
 		while(1){
                         if(shared_mem2->game_msg.turn_end == 1){
-                 		clock_gettime(CLOCK_MONOTONIC, &shared_mem2->stop);
-        	                accum = (shared_mem2->stop.tv_sec - shared_mem2->start.tv_sec) + (double)(shared_mem2->stop.tv_nsec - shared_mem2->start.tv_nsec) / (double)BILLION;
-	                        printf("%.9f\n",accum);
+				printRatingTransferRate(shared_mem2->start);
 
 		 		p(semid1);
                                 shared_mem1->game_msg.omok_board[shared_mem2->game_msg.row][shared_mem2->game_msg.col] = 'X';
@@ -329,9 +341,7 @@ void* watingRoomDataCommunication(){
 	double accum;
 	while(player1_ready == 0 || player2_ready == 0){
 		if(shared_mem1->wait_msg.status_change == 1){
-			clock_gettime(CLOCK_MONOTONIC, &shared_mem1->stop);
-			accum = (shared_mem1->stop.tv_sec - shared_mem1->start.tv_sec) + (double)(shared_mem1->stop.tv_nsec - shared_mem1->start.tv_nsec) / (double)BILLION;
-			printf("%.9f\n",accum);
+			printRatingTransferRate(shared_mem1->start);
 
 			if(shared_mem1->wait_msg.connect == 1){
 				p(semid2);
@@ -360,9 +370,7 @@ void* watingRoomDataCommunication(){
 		}
 
 		if(shared_mem2->wait_msg.status_change == 1){
-			clock_gettime(CLOCK_MONOTONIC, &shared_mem2->stop);
-                        accum = (shared_mem2->stop.tv_sec - shared_mem2->start.tv_sec) + (double)(shared_mem2->stop.tv_nsec - shared_mem2->start.tv_nsec) / (double)BILLION;
-                        printf("%.9f\n",accum);
+			printRatingTransferRate(shared_mem2->start);
 
 			if(shared_mem2->wait_msg.connect == 1){
                         	p(semid1);
