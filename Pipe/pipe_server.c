@@ -61,8 +61,8 @@ int main()
 	pthread_create(&waiting_thread, NULL, waitingRoomDataCommunication, NULL);
 	pthread_join(waiting_thread, NULL);
 
-	//pthread_create(&game_thread, NULL, gameRoomDataCommunication, NULL);
-	//pthread_join(game_thread, NULL);
+	pthread_create(&game_thread, NULL, gameRoomDataCommunication, NULL);
+	pthread_join(game_thread, NULL);
 
 
 }
@@ -161,6 +161,10 @@ void* gameRoomDataCommunication(){
 		for(int i = 0; i < 2; i++){
 			send_msg.g_msg.my_turn = 1;
 			write(write_fd[i], &send_msg, sizeof(send_msg));
+
+			send_msg.g_msg.my_turn = 0;
+			write(write_fd[(i + 1) % 2], &send_msg, sizeof(send_msg));
+
 			if(read(read_fd, &recv_msg, sizeof(recv_msg)) == -1){
 				printf("read_fd error\n");
 			}
@@ -184,8 +188,12 @@ void* gameRoomDataCommunication(){
 					break;
 				}
 				else{
+					send_msg.g_msg.result = 0;
+                                        write(write_fd[i], &send_msg, sizeof(send_msg));
+
 					send_msg.g_msg.row = recv_msg.g_msg.row;
                                 	send_msg.g_msg.col = recv_msg.g_msg.col;
+					write(write_fd[(i + 1) % 2], &send_msg, sizeof(send_msg));
 				}
 			}
 
