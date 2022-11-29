@@ -28,6 +28,8 @@ typedef struct waitingroom_msg{
 typedef struct gameroom_msg{
         int row;
         int col;
+	int my_turn;
+	int result;
         char omok_board[ROW][COLUMN];
 }game_msg;
 
@@ -46,15 +48,16 @@ int write_fd;
 
 char read_path[PATH_SIZE];
 
+void printOmokBoard();
 void initMenu();
 void initNcurses();
-//void gameRoom();
+void gameRoom();
 void waitingRoom();
 void* checkWaitingRoomOpponentStatus();
-//void* checkGameRoomOpponentTurnEnd();
+void* checkGameRoomOpponentTurnEnd();
+void* checkGameRoomMyTurn();
 
-
-pthread_t waiting_thread, game_thread;
+pthread_t waiting_thread;
 
 char* waiting_status[] = {"Wait", "Join", "Ready"};
 
@@ -67,6 +70,167 @@ int main()
 	return 0;
 }
 
+void gameRoom()
+{
+	initNcurses();
+	int xStart = 5, yStart = 3;
+	int i, k, xPoint = 3;
+	int row = 0, column = 0;
+	void*ret;
+
+	pthread_t check_myturn_thread, check_oppenent_turnend_thread;
+
+	move(yStart, xStart + 2);
+	keypad(stdscr, TRUE);
+
+	for (i = 0; i < ROW; i++) {
+		for (k = 0; k < COLUMN; k++) {
+			send_msg.g_msg.omok_board[i][k] = '+';
+		}
+	}
+
+	printOmokBoard();
+
+	while(1){
+		pthread_create(&check_myturn_thread, NULL, checkGameRoomMyTurn, NULL);
+		pthread_join(check_myturn_thread, &ret);
+
+		if(*(int*)ret == 0){
+			pthread_create(&check_oppenent_turnend_thread, NULL, checkGameRoomOpponentTurnEnd, NULL);
+			pthread_join(check_oppenent_turnend_thread, &ret);
+			printOmokBoard();
+
+			if (*(int*)ret == 1){
+                                mvprintw(yStart + 15, xStart, "Lose...");
+                                refresh();
+
+                                for (int i = 0; i < 3; i++){
+                                        mvprintw(yStart + 15 + 1, xStart, "End on %d seconds", 3 - i);
+                                        refresh();
+                                        sleep(1);
+                                }
+                                endwin();
+                        return;
+                        }
+
+		}
+
+		else{
+			while(1){
+				attron(A_REVERSE);
+				mvprintw(row + yStart, xStart + column * xPoint + 2, "%c", send_msg.g_msg.omok_board[row][column]);
+				attroff(A_REVERSE);
+					
+				refresh();
+
+				int c;
+				c = getch();
+				switch(c){
+					case KEY_UP:
+						if(row == 0)
+							row = 14;
+						else
+							row--;
+						break;
+					case KEY_DOWN:
+						if(row == 14)
+							row = 0;
+						else
+							row++;
+						break;
+					case KEY_LEFT:
+						if(column == 0)
+							column = 14;
+					else
+							column--;
+						break;
+					case KEY_RIGHT:
+						if(column == 14)
+							column = 0;
+						else
+							column++;
+					break;
+					default:
+						break;
+				}
+				if (c == 10 || c == ' '){
+					if(send_msg.g_msg.omok_board[row][column] == '+'){
+						send_msg.g_msg.omok_board[row][column] = 'O';
+						send_msg.g_msg.row = row;
+						send_msg.g_msg.col = column;
+					write(write_fd, &send_msg, sizeof(send_msg));
+
+					printOmokBoard();
+
+					}
+					usleep(100000);
+					if(read(read_fd, &recv_msg, sizeof(recv_msg)) == -1){
+	       							perror("[SYSTEM] Read Error!!\n");
+					}
+					else{
+						if (recv_msg.g_msg.result == 1){
+							mvprintw(yStart + 15, xStart, "Win!!");
+							refresh();
+						for (int i = 0; i < 3; i++){
+							mvprintw(yStart + 15 + 1, xStart, "End on %d seconds", 3 - i);
+							refresh();
+							sleep(1);
+						}
+						endwin();
+						return;
+						}
+					}
+					break;
+				}	
+			}
+		}
+	}
+	endwin();
+}	
+
+void printOmokBoard() {
+	int xStart = 5, yStart = 3, xPoint = 3;
+	for (int i = 0; i < ROW; i++) {
+		mvprintw(i + yStart, xStart, "|");
+		for (int k = 0; k < COLUMN; k++) {
+			mvprintw(i + yStart, 1 + xPoint * k + xStart, "-%c-", send_msg.g_msg.omok_board[i][k]);
+		}
+		mvprintw(i + yStart, 1 + xPoint * 15 + xStart, "|");
+	}
+	refresh();
+}
+
+void* checkGameRoomMyTurn(){
+	int ret = 0;
+
+	if (read(read_fd, &recv_msg, sizeof(recv_msg)) == -1){
+                perror("[SYSTEM] Read Error");
+        }
+        else{
+                if (recv_msg.g_msg.my_turn == 1) {
+                        ret = 1;
+                        pthread_exit((void*)&ret);
+                }
+        }
+        pthread_exit((void*)&ret);	
+}
+
+void* checkGameRoomOpponentTurnEnd()
+{
+	int ret = 0;
+
+	if (read(read_fd, &recv_msg, sizeof(recv_msg)) == -1){
+		perror("[SYSTEM] Read Error");
+	}
+	else{
+		send_msg.g_msg.omok_board[recv_msg.g_msg.row][recv_msg.g_msg.col] = 'X';
+		if (recv_msg.g_msg.result == 2) {
+			ret = 1;
+			pthread_exit((void*)&ret);
+		}
+	}
+	pthread_exit((void*)&ret);
+}
 
 void initMenu(){
 	initNcurses();
@@ -138,129 +302,6 @@ void initNcurses()
 	cbreak();
 	curs_set(0);
 }
-
-/*
-void gameRoom()
-{
-	initNcurses();
-
-	msg_t msg;
-	char send_buf[BUF_SIZE];
-	int xStart = 5, yStart = 3;
-	int i, k, xPoint = 3;
-	int row = 0, column = 0;
-
-	move(yStart, xStart + 2);
-
-	keypad(stdscr, TRUE);
-
-	refresh();
-
-	while(1)
-	{
-		pthread_create(&game_thread, NULL, checkGameRoomOpponentTurnEnd, NULL);
-		pthread_join(game_thread, NULL);
-
-		if(read(read_fd, &msg, sizeof(msg)) == -1)
-		{
-			perror("[SYSTEM] Read Error!!\n");
-		}
-		else
-		{	
-			if (*msg.data == '3')
-			{
-				mvprintw(yStart + 15, xStart, "Lose...");
-				refresh();
-			
-				for (int i = 0; i < 3; i++)
-				{
-					mvprintw(yStart + 15 + 1, xStart, "End on %d seconds", 3 - i);
-					refresh();
-					sleep(1);
-				}
-				endwin();
-				return;
-			}
-		}
-
-		attron(A_REVERSE);
-		mvprintw(row + yStart, xStart + column * xPoint + 2, "%c", omok_board[row][column]);
-		attroff(A_REVERSE);
-
-		int c;
-
-		c = getch();
-
-		switch(c)
-		{
-			case KEY_UP:
-				if(row == 0)
-					row = 14;
-				else
-					row--;
-				break;
-			case KEY_DOWN:
-				if(row == 14)
-					row = 0;
-				else
-					row++;
-				break;
-			case KEY_LEFT:
-				if(column == 0)
-					column = 14;
-				else
-					column--;
-				break;
-			case KEY_RIGHT:
-				if(column == 14)
-					column = 0;
-				else
-					column++;
-				break;
-			default:
-				break;
-		}
-
-		if (c == 10 || c == ' ')
-		{
-			if(omok_board[row][column] == '+')
-			{
-				omok_board[row][column] = 'O';
-				memset(msg.data, '\0',sizeof(send_buf));
-				send_buf[0] = (char)row;
-				send_buf[1] = (char)column;
-				strncpy(msg.data, send_buf, sizeof(send_buf));
-				write(write_fd, &msg, sizeof(msg));
-			}
-			usleep(100000);
-
-			if(read(read_fd, &msg, sizeof(msg)) == -1)
-	                {
-        	                perror("[SYSTEM] Read Error!!\n");
-		       	}
-                	else
-                	{
-                        	if (*msg.data == '4')
-                        	{
-                                	mvprintw(yStart + 15, xStart, "Win!!");
-                                	refresh();
-
-                                	for (int i = 0; i < 3; i++)
-                                	{
-                                        	mvprintw(yStart + 15 + 1, xStart, "End on %d seconds", 3 - i);
-                                        	refresh();
-                                        	sleep(1);
-                                	}
-                                	endwin();
-                                	return;
-                        	}	
-                	}
-
-		}
-	}
-	endwin();
-}	
-*/
 
 void waitingRoom()
 {
@@ -360,7 +401,7 @@ void waitingRoom()
 			sleep(1);
 		}
 		endwin();
-	//	gameRoom();
+		gameRoom();
 	}
 
 }
@@ -388,47 +429,3 @@ void* checkWaitingRoomOpponentStatus()
 	}
 	pthread_exit(NULL);	
 }
-
-/*void* checkGameRoomOpponentTurnEnd()
-{
-	int xPoint = 3, xStart = 5, yStart = 3;
-	int i, k;
-	char a;
-	msg_t msg;
-
-	for (i = 0; i < ROW; i++)
-	{
-		mvprintw(i + yStart, xStart, "|");
-		for(k = 0; k < COLUMN; k++)
-		{
-			mvprintw(i + yStart, 1 + xPoint * k + xStart, "-%c-",omok_board[i][k]);
-		}
-		mvprintw(i + yStart, 1 + xPoint * 15 + xStart, "|");
-	}
-	refresh();
-
-
-	while(1)
-	{
-		memset(msg.data, '\0', BUF_SIZE);
-		if (read(read_fd, &msg, sizeof(msg)) == -1)
-		{
-			perror("[SYSTEM] Read Error");
-		}
-		else
-		{
-			if (*msg.data == '5')
-			{
-				for (i=0; i < ROW; i++)
-				{
-					mvprintw(i + yStart, 1 + xPoint * k + xStart, "-%c-", omok_board[i][k]);
-				}
-				mvprintw(i + yStart, 1 + xPoint * 15 + xStart, "|");
-			}
-			refresh();
-
-			break;
-		}
-	}
-}
-*/
