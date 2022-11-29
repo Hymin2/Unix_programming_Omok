@@ -56,6 +56,7 @@ void waitingRoom();
 void* checkWaitingRoomOpponentStatus();
 void* checkGameRoomOpponentTurnEnd();
 void* checkGameRoomMyTurn();
+void* connectToServer();
 
 pthread_t waiting_thread;
 
@@ -68,6 +69,37 @@ int main()
 	initMenu();
 
 	return 0;
+}
+
+void* connectToServer(){
+	int pid;
+
+	pid = getpid();
+
+	if ((write_fd = open(TO_SERVER_FILE, O_RDWR)) == -1){
+                perror("write_fd open error\n");
+                sleep(3);
+                exit(1);
+        }
+
+	sprintf(read_path, "%s%d", FROM_SERVER_FILE, pid);
+
+        send_msg.pid = pid;
+        clock_gettime(CLOCK_MONOTONIC, &send_msg.start);
+        write(write_fd, &send_msg, sizeof(send_msg));
+
+        if ((read_fd = open(read_path, O_RDWR)) == -1){
+                perror("read_fd open error\n");
+                mkfifo(read_path, 0666);
+
+                if((read_fd = open(read_path, O_RDWR)) == -1){
+                         perror("read_fd open error\n");
+                        printf("[SYSTEM] program exit in 3 sec..\n");
+                        sleep(3);
+                        exit(1);
+                }
+        }
+	
 }
 
 void gameRoom()
@@ -117,11 +149,10 @@ void gameRoom()
 
 		else{
 			while(1){
+				printOmokBoard();
 				attron(A_REVERSE);
 				mvprintw(row + yStart, xStart + column * xPoint + 2, "%c", send_msg.g_msg.omok_board[row][column]);
 				attroff(A_REVERSE);
-					
-				refresh();
 
 				int c;
 				c = getch();
@@ -158,29 +189,34 @@ void gameRoom()
 						send_msg.g_msg.omok_board[row][column] = 'O';
 						send_msg.g_msg.row = row;
 						send_msg.g_msg.col = column;
-					write(write_fd, &send_msg, sizeof(send_msg));
+						clock_gettime(CLOCK_MONOTONIC, &send_msg.start);
+						write(write_fd, &send_msg, sizeof(send_msg));
 
-					printOmokBoard();
+						printOmokBoard();
 
-					}
-					usleep(100000);
-					if(read(read_fd, &recv_msg, sizeof(recv_msg)) == -1){
-	       							perror("[SYSTEM] Read Error!!\n");
-					}
-					else{
-						if (recv_msg.g_msg.result == 1){
-							mvprintw(yStart + 15, xStart, "Win!!");
-							refresh();
-						for (int i = 0; i < 3; i++){
-							mvprintw(yStart + 15 + 1, xStart, "End on %d seconds", 3 - i);
-							refresh();
-							sleep(1);
+					
+						usleep(100000);
+						if(read(read_fd, &recv_msg, sizeof(recv_msg)) == -1){
+	       						perror("[SYSTEM] Read Error!!\n");
 						}
-						endwin();
-						return;
+						
+						else{
+							if (recv_msg.g_msg.result == 1){
+								mvprintw(yStart + 15, xStart, "Win!!");
+								refresh();
+								for (int i = 0; i < 3; i++){
+									mvprintw(yStart + 15 + 1, xStart, "End on %d seconds", 3 - i);
+									refresh();
+									sleep(1);
+								}
+							endwin();
+							return;
+							}
 						}
+
+						break;
 					}
-					break;
+					
 				}	
 			}
 		}
@@ -309,39 +345,10 @@ void waitingRoom()
 	char send_buf[BUF_SIZE];
 	int i, highlight = 0;
 	int xStart = 5, yStart = 3;
-	int pid;
 
 	char* select[] = {"Ready!!"};
 
-	pid = getpid();
-
-        if ((write_fd = open(TO_SERVER_FILE, O_RDWR)) == -1)
-        {
-                perror("[SYSTEM] mkfifo file open failed(send to server)\n");
-                printf("[SYSTEM] program exit in 3 sec..\n");
-                sleep(3);
-                exit(1);
-        }
-        sprintf(read_path, "%s%d", FROM_SERVER_FILE, pid);
-        if ((read_fd = open(read_path, O_RDWR)) == -1)
-        {
-                perror("[SYSTEM] mkfifo file open failed(receive from server)\n");
-                printf("[SYSTEM] mkfifo file creating...(receive from server)\n");
-                mkfifo(read_path, 0666);
-                printf("[SYSTEM] mkfifo file create complete!(receive from server)\n");
-                if((read_fd = open(read_path, O_RDWR)) == -1)
-                {
-                perror("[SYSTEM] mkfifo file open failed(receieve from server)\n");
-                        printf("[SYSTEM] program exit in 3 sec..\n");
-                        sleep(3);
-                        exit(1);
-                }
-        }
-	
-	send_msg.pid = pid;
-	clock_gettime(CLOCK_MONOTONIC, &send_msg.start);
-	write(write_fd, &send_msg, sizeof(send_msg));
-
+	connectToServer();
 
 	WINDOW* player1 = newwin(5, 15, yStart, xStart);
 	box(player1, 0, 0);
@@ -360,29 +367,30 @@ void waitingRoom()
 
 	waiting_opponent_status = newwin(1, 7, yStart + 2, xStart + 20);
 
-	WINDOW* ready_exit_box = newwin(3, 30, yStart + 5, xStart);
-	box(ready_exit_box, 0, 0);
+	WINDOW* ready_box = newwin(3, 15, yStart + 5, xStart);
+	mvwprintw(ready_box, 0, 7, "Ready!!");
+	box(ready_box, 0, 0);
 
-	keypad(ready_exit_box, TRUE);
+	keypad(ready_box, TRUE);
 
 	refresh();
 
 	wrefresh(player1);
 	wrefresh(player1_status);
 	wrefresh(player2);
-	wrefresh(ready_exit_box);
+	wrefresh(ready_box);
 
 	pthread_create(&waiting_thread, NULL, checkWaitingRoomOpponentStatus, NULL);
-	
+
 	int c;
 
-	c = wgetch(ready_exit_box);
+	c = wgetch(ready_box);
 
 	if(c == 10 || c == ' '){
-		wattron(ready_exit_box, A_NORMAL);
-		mvwprintw(ready_exit_box, 1, 5, "%s", select[0]);
-		wattroff(ready_exit_box, A_NORMAL);
-		wrefresh(ready_exit_box);
+		wattron(ready_box, A_NORMAL);
+		mvwprintw(ready_box, 1, 5, "Ready!!");
+		wattroff(ready_box, A_NORMAL);
+		wrefresh(ready_box);
 	
 		touchwin(player1_status);
 		mvwprintw(player1_status, 0, 0, "%s", waiting_status[2]);

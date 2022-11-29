@@ -65,6 +65,7 @@ int main()
 	pthread_join(game_thread, NULL);
 
 
+	return 0;
 }
 
 void* waitingRoomDataCommunication(){
@@ -87,9 +88,6 @@ void* waitingRoomDataCommunication(){
                 else{
 			pid[i] = recv_msg.pid;
 
-                        //clock_gettime(CLOCK_MONOTONIC, &recv_msg.end);
-                        //accum = (recv_msg.end.tv_sec - recv_msg.start.tv_sec) + (double)(recv_msg.end.tv_nsec - recv_msg.start.tv_nsec) / 1000000000;
-                        //printf("%.9f\n",accum);
 			printRatingTransferRate(recv_msg.start);
 		}
 	
@@ -119,20 +117,12 @@ void* waitingRoomDataCommunication(){
                 else
                 {
 			if(recv_msg.w_msg.ready == 1 && recv_msg.pid == pid[0]){
-                                //clock_gettime(CLOCK_MONOTONIC, &recv_msg.end);
-        	                //accum = (recv_msg.end.tv_sec - recv_msg.start.tv_sec) + (double)(recv_msg.end.tv_nsec - recv_msg.start.tv_nsec) / 1000000000;
-	                        //printf("%.9f\n",accum);
-
 	                        printRatingTransferRate(recv_msg.start);
 
 				send_msg.w_msg.oppenent_ready = 1;
                                 write(write_fd[1], &send_msg, sizeof(send_msg));
 			}
 			else if(recv_msg.w_msg.ready == 1 && recv_msg.pid == pid[1]){
-                		//clock_gettime(CLOCK_MONOTONIC, &recv_msg.end);
-        	                //accum = (recv_msg.end.tv_sec - recv_msg.start.tv_sec) + (double)(recv_msg.end.tv_nsec - recv_msg.start.tv_nsec) / 1000000000;
-	                        //printf("%.9f\n",accum);
-
 	                        printRatingTransferRate(recv_msg.start);
 
 				send_msg.w_msg.oppenent_ready = 1;
