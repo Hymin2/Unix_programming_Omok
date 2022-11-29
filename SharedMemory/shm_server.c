@@ -12,37 +12,47 @@
 #define SEMKEY1 1111
 #define SEMKEY2 2222
 
+// 공유 메모리 ID
+// 세마포어 ID
 int shmid1, shmid2;
 int semid1, semid2;
 
+// 공유 메모리에 부착될 변수
 data_buf* shared_mem1;
 data_buf* shared_mem2;
 
-void initSharedMemoryData();
-void* watingRoomDataCommunication();
-void* gameRoomDataCommunication();
-void getseg();
-void* judgeOmok(void* turn);
+void initSharedMemoryData();		// 공유 메모리의 변수들 초기화
+void* watingRoomDataCommunication();	// 대기실에서 통신을 위한 쓰레드 함수
+void* gameRoomDataCommunication();	// 오목 진행 중 통신을 위한 쓰레드 함수
+void getseg();				// 공유 메모리 부착 함수
+void* judgeOmok(void* turn);		// 오목 판단 쓰레드 함수
 
 int main(){
+	// 쓰레드 생성할 변수
 	pthread_t waiting_thread;
 	pthread_t game_thread;
 	
+	// 공유 메모리 부착
 	getseg();
 	
+	// 세마포어 생성
 	semid1 = initsem(SEMKEY1);
 	semid2 = initsem(SEMKEY2);
 
+	// 공유 메모리 변수 초기화
 	initSharedMemoryData();
 	
+	// 대기실 쓰레드 생성
 	pthread_create(&waiting_thread, NULL, watingRoomDataCommunication, NULL);
 	pthread_join(waiting_thread, NULL);
 
+	// 게임 쓰레드 생성
 	pthread_create(&game_thread, NULL, gameRoomDataCommunication, NULL);
         pthread_join(game_thread, NULL);
 
 	sleep(5);
 
+	// 공유 메모리 및 세마포어 제거 후 종료
 	if(shmctl(shmid1, IPC_RMID, 0) == -1){
 		printf("shmctl error\n");
 	}
@@ -58,6 +68,7 @@ int main(){
 }
 
 void getseg(){
+	// 공유 메모리 생성 후 변수에 부착
         if((shmid1 = shmget(SHMKEY1, sizeof(data_buf), 0666 | IFLAGS)) == -1)
 		printf("shmget error");
 
@@ -72,6 +83,7 @@ void getseg(){
 }
 
 void initSharedMemoryData(){
+	// 공유 메모리 변수 초기화
 	p(semid1);
 	shared_mem1->wait_msg.connect = 0;
 	shared_mem1->wait_msg.ready = 0;
@@ -111,10 +123,10 @@ void initSharedMemoryData(){
 }
 
 void* gameRoomDataCommunication(){
-	void* ret;
-	int turn;
-	double accum;
-	pthread_t judge_thread;
+	void* ret;			// 오목의 결과를 저장
+	int turn;			// 
+	double accum;			// 
+	pthread_t judge_thread;		// 오목 판단 쓰레드 변수
 
 	p(semid1);
         shared_mem1->game_msg.my_turn = 1;
