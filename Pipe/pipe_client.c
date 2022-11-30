@@ -59,6 +59,7 @@ void* checkGameRoomMyTurn();
 void* connectToServer();
 
 pthread_t waiting_thread;
+pthread_mutex_t mutex;
 
 char* waiting_status[] = {"Wait", "Join", "Ready"};
 
@@ -369,7 +370,9 @@ void waitingRoom()
 	waiting_opponent_status = newwin(1, 7, yStart + 2, xStart + 20);
 
 	WINDOW* ready_box = newwin(3, 15, yStart + 5, xStart);
+	wattron(ready_box, A_REVERSE);
 	mvwprintw(ready_box, 1, 4, "Ready!!");
+	wattroff(ready_box, A_REVERSE);
 	box(ready_box, 0, 0);
 
 	keypad(ready_box, TRUE);
@@ -378,14 +381,14 @@ void waitingRoom()
 	refresh();
 
 	pthread_create(&waiting_thread, NULL, checkWaitingRoomOpponentStatus, NULL);
-
+	
+	pthread_mutex_lock(&mutex);
 	wrefresh(player1);
 	wrefresh(player1_status);
 	wrefresh(player2);
 	wrefresh(ready_box);
+	pthread_mutex_unlock(&mutex);
 
-
-	
 	int c;
 
 	while(1){
@@ -423,10 +426,10 @@ void waitingRoom()
 
 void* checkWaitingRoomOpponentStatus()
 {
-	usleep(1000000);
+	pthread_mutex_lock(&mutex);
 	mvwprintw(waiting_opponent_status, 0, 0, "%s", waiting_status[0]);
 	wrefresh(waiting_opponent_status);
-
+	pthread_mutex_unlock(&mutex);
 
 	for(int i = 0; i < 2; i++){
 		
