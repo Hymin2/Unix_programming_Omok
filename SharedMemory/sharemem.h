@@ -30,7 +30,7 @@ typedef struct game_room_msg{
 
 typedef struct data_buf{
 	struct timespec start;
-	struct timespec stop;	
+	struct timespec end;	
         waiting_room_msg wait_msg;
         game_room_msg game_msg;
 }data_buf;

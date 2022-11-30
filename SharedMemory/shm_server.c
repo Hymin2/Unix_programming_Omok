@@ -26,7 +26,7 @@ void* watingRoomDataCommunication();	// 대기실에서 통신을 위한 쓰레�
 void* gameRoomDataCommunication();	// 오목 진행 중 통신을 위한 쓰레드 함수
 void getseg();				// 공유 메모리 부착 함수
 void* judgeOmok(void* turn);		// 오목 판단 쓰레드 함수
-void printRatingTransferRate(struct timespec start);
+void printRatingTransferRate(struct timespec start, struct timespec end);
 
 int main(){
 	// 쓰레드 생성할 변수
@@ -74,13 +74,12 @@ int main(){
         }
 }
 
-void printRatingTransferRate(struct timespec start){
-        struct timespec end;
+void printRatingTransferRate(struct timespec start, struct timespec end){
         double accum;
 
         clock_gettime(CLOCK_MONOTONIC, &end);
         accum = (end.tv_sec - start.tv_sec) + (double)(end.tv_nsec - start.tv_nsec) / BILLION;
-        printf("%.9f\n",accum);
+        printf("[Transfer Rate] %.9f\n",accum);
 }
 
 void getseg(){
@@ -152,17 +151,8 @@ void* gameRoomDataCommunication(){
 	
 		while(1){
 			if(shared_mem1->game_msg.turn_end == 1){
-				printRatingTransferRate(shared_mem1->start);
-
-				p(semid2);
-				shared_mem2->game_msg.omok_board[shared_mem1->game_msg.row][shared_mem1->game_msg.col] = 'X';
-				shared_mem2->game_msg.my_turn = 1;
-				v(semid2);
-
-				p(semid1);
-				shared_mem1->game_msg.my_turn = 0;
-				shared_mem1->game_msg.turn_end = 0;
-				v(semid1);
+				clock_gettime(CLOCK_MONOTONIC, &shared_mem1->end);
+				printRatingTransferRate(shared_mem1->start, shared_mem1->end);
 				
 				turn = 1;
 
@@ -181,23 +171,27 @@ void* gameRoomDataCommunication(){
 			p(semid2);
                         shared_mem2->game_msg.result = 2;
                         v(semid2);
-
+			
+			printf("player1 win\n");
+			printf("game is ended\n");
 			break;	
+		}
+		else{
+			p(semid2);
+                        shared_mem2->game_msg.omok_board[shared_mem1->game_msg.row][shared_mem1->game_msg.col] = 'X';
+                        shared_mem2->game_msg.my_turn = 1;
+                        v(semid2);
+
+                        p(semid1);
+                        shared_mem1->game_msg.my_turn = 0;
+                        shared_mem1->game_msg.turn_end = 0;
+                        v(semid1);
 		}
 
 		while(1){
                         if(shared_mem2->game_msg.turn_end == 1){
-				printRatingTransferRate(shared_mem2->start);
-
-		 		p(semid1);
-                                shared_mem1->game_msg.omok_board[shared_mem2->game_msg.row][shared_mem2->game_msg.col] = 'X';
-                 		shared_mem1->game_msg.my_turn = 1;
-		 		v(semid1);
-
-                                p(semid2);
-                                shared_mem2->game_msg.my_turn = 0;
-                                shared_mem2->game_msg.turn_end = 0;
-                                v(semid2);
+				clock_gettime(CLOCK_MONOTONIC, &shared_mem2->end);
+				printRatingTransferRate(shared_mem2->start, shared_mem2->end);
 
 				turn = 2;
 
@@ -216,8 +210,22 @@ void* gameRoomDataCommunication(){
                         shared_mem1->game_msg.result = 2;
                         v(semid1);
 
+			printf("player2 win\n");
+			printf("game is ended\n");
+
 			break;
                 }
+		else{
+			p(semid1);
+                        shared_mem1->game_msg.omok_board[shared_mem2->game_msg.row][shared_mem2->game_msg.col] = 'X';
+                        shared_mem1->game_msg.my_turn = 1;
+                        v(semid1);
+
+                        p(semid2);
+                        shared_mem2->game_msg.my_turn = 0;
+                        shared_mem2->game_msg.turn_end = 0;
+                        v(semid2);
+		}
 
 	}	
 }
@@ -254,7 +262,7 @@ void* judgeOmok(void* turn){
 		else cnt = 0;
 
 		if(cnt == 5){
-			if(board[i + 1][col] != 'O'){
+			if(i + 1 == ROW || board[i + 1][col] != 'O'){
 				ret = 1;
 			        pthread_exit((void*)&ret);	
 			}
@@ -267,7 +275,7 @@ void* judgeOmok(void* turn){
                 else cnt = 0;
 
 		if(cnt == 5){
-                         if(board[row][i + 1] != 'O'){
+                         if(i + 1 == COLUMN || board[row][i + 1] != 'O'){
                                  ret = 1;
                                  pthread_exit((void*)&ret);
                          }
@@ -286,7 +294,7 @@ void* judgeOmok(void* turn){
                 	else cnt = 0;
 
 			if(cnt == 5){
-                          if(board[i][col + 1] != 'O'){
+                          if(start_row + i + 1 == ROW || board[start_row + i + 1][start_col + i + 1] != 'O'){
                                   ret = 1;
                                   pthread_exit((void*)&ret);
                           }
@@ -302,8 +310,8 @@ void* judgeOmok(void* turn){
                         if(board[start_row + i][start_col + i] == 'O') cnt++;
                         else cnt = 0;
 
-			if(start_col < 15 && cnt == 5){
-                          if(board[start_row + i + 1][start_col + i] != 'O'){
+			if(cnt == 5){
+                          if(start_col + i + 1 == COLUMN || board[start_row + i + 1][start_col + i + 1] != 'O'){
                                   ret = 1;
                                   pthread_exit((void*)&ret);
                           }
@@ -316,12 +324,12 @@ void* judgeOmok(void* turn){
 	start_row = row + col;
 	start_col = 0;
 	cnt = 0;
-	for(i = 0; start_row - i < 0; i++){
+	for(i = 0; start_row - i >= 0; i++){
 		if(board[start_row - i][i] == 'O') cnt++;
 		else cnt = 0;
 
-		if(start_row - i - 1 >= 0 && cnt == 5){
-                          if(board[start_row - i - 1][i + 1] != 'O'){
+		if(cnt == 5){
+                          if(start_row - i - 1 == -1 || board[start_row - i - 1][i + 1] != 'O'){
                                   ret = 1;
                                   pthread_exit((void*)&ret);
                           }
@@ -330,7 +338,6 @@ void* judgeOmok(void* turn){
 	}
 
 	ret = 0;
-	printf("%d",ret);
 	pthread_exit((void*)&ret);
 	
 }
@@ -341,19 +348,22 @@ void* watingRoomDataCommunication(){
 	double accum;
 	while(player1_ready == 0 || player2_ready == 0){
 		if(shared_mem1->wait_msg.status_change == 1){
-			printRatingTransferRate(shared_mem1->start);
+			clock_gettime(CLOCK_MONOTONIC, &shared_mem1->end);
+			printRatingTransferRate(shared_mem1->start, shared_mem1->end);
 
 			if(shared_mem1->wait_msg.connect == 1){
 				p(semid2);
 				shared_mem2->wait_msg.opponent_change = 1;
 				shared_mem2->wait_msg.opponent_connect = 1;
 				v(semid2);
+				printf("player1 connected\n");
 			}
 			else if(shared_mem1->wait_msg.connect == 0){
                       		p(semid2);
 				shared_mem2->wait_msg.opponent_change = 1;
                    		shared_mem2->wait_msg.opponent_connect = 0;
                       		v(semid2);
+				printf("player1 exit\n");
               		}
 
 			if(player1_ready == 0 && shared_mem1->wait_msg.ready == 1){
@@ -361,6 +371,7 @@ void* watingRoomDataCommunication(){
 				shared_mem2->wait_msg.opponent_change = 1;
                        		shared_mem2->wait_msg.opponent_ready = 1;
                         	v(semid2);
+				printf("player1 is ready\n");
 
                         	player1_ready = 1;
                 	}
@@ -370,19 +381,22 @@ void* watingRoomDataCommunication(){
 		}
 
 		if(shared_mem2->wait_msg.status_change == 1){
-			printRatingTransferRate(shared_mem2->start);
+			clock_gettime(CLOCK_MONOTONIC, &shared_mem2->end);
+			printRatingTransferRate(shared_mem2->start, shared_mem2->end);
 
 			if(shared_mem2->wait_msg.connect == 1){
                         	p(semid1);
 				shared_mem1->wait_msg.opponent_change = 1;
                         	shared_mem1->wait_msg.opponent_connect = 1;
                         	v(semid1);
+				printf("player2 connected\n");
                 	}
 			else if(shared_mem2->wait_msg.connect == 0){
                         	p(semid1);
 				shared_mem1->wait_msg.opponent_change = 1;
                         	shared_mem1->wait_msg.opponent_connect = 0;
                         	v(semid1);
+				printf("player2 exit\n");
                 	}
 
 			if(player2_ready == 0 && shared_mem2->wait_msg.ready == 1){
@@ -390,6 +404,7 @@ void* watingRoomDataCommunication(){
 				shared_mem1->wait_msg.opponent_change = 1;
                        		shared_mem1->wait_msg.opponent_ready = 1;
                         	v(semid1);
+				printf("player2 is ready\n");
 
 				player2_ready = 1;
                 	}
@@ -398,6 +413,8 @@ void* watingRoomDataCommunication(){
 			v(semid2);
 		}
 	}
+	
+	printf("game start\n");
 
 	pthread_exit(NULL);
 }

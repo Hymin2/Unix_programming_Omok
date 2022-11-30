@@ -17,6 +17,7 @@ void waitingRoom();			// 대기실 화면 함수
 void initshm();				// 공유 메모리 초기화 함수
 void* checkWaitingRoomPlayer2Status();	// 대기실에서 상대방이 연결 상태를 확인해줄 쓰레드 함수
 void* checkGameRoomPlayer2TurnEnd();	// 게임 화면에서 상대방의 턴이 끝났는지 확인해줄 쓰레드 함수
+void printOmokBoard();
 
 // 공유 메모리, 세마포어 아이디를 받을 변수
 int shmid, semid;
@@ -37,6 +38,9 @@ int main(){
 	initshm();		// 공유 메모리 초기화
 	initMenu();			// 초기 메뉴 화면 
 	
+	if(shmdt(shared_mem) < 0){
+		printf("shmdt error\n");
+	}
 	return 0;
 }
 
@@ -82,45 +86,43 @@ void* checkWaitingRoomPlayer2Status(){
                                 mvwprintw(waiting_player2_status, 0, 0, "%s", waiting_status[2]);
                                 wrefresh(waiting_player2_status);
                         }
+			usleep(100000);
 	}
 	// 쓰레드 종료
 	pthread_exit(NULL);
 }
 
-void* checkGameRoomPlayer2TurnEnd(){
-	// x축으로 3칸씩 표시 (-+-)
-	// (5,3)에서 부터 시작
-	int xPoint = 3, xStart = 5, yStart = 3;		
-	int i, k;
+void printOmokBoard(){
+	int xPoint = 3, xStart = 5, yStart = 3;
+        int i, k;
 
-	// 오목판 생성 15x15
-	for(i = 0; i < ROW; i++){
+        // 오목판 생성 15x15
+        for(i = 0; i < ROW; i++){
                 mvprintw(i + yStart, xStart, "|");
                 for(k = 0; k < COLUMN; k++){
                         mvprintw(i + yStart,  1 + xPoint * k + xStart, "-%c-", shared_mem->game_msg.omok_board[i][k]);
                 }
                 mvprintw(i + yStart, 1 + xPoint * 15 + xStart, "|");
         }
-	// 화면 새로고침
-	refresh();
+        // 화면 새로고침
+        refresh();
+}
 
-	// player2의 턴이 끝날 때 까지 반복
+void* checkGameRoomPlayer2TurnEnd(){
+	int ret = 0;
+
         while(1){
 		// player2의 턴이 끝나면 오목판 새로고침
-                if(shared_mem->game_msg.my_turn != 0){
-                        for(i = 0; i < ROW; i++){
-                                mvprintw(i + yStart, xStart, "|");
-                                for(k = 0; k < COLUMN; k++){
-                                        mvprintw(i + yStart,  1 + xPoint * k + xStart, "-%c-", shared_mem->game_msg.omok_board[i][k]);
-                                }
-                                mvprintw(i + yStart, 1 + xPoint * 15 + xStart, "|");
-                        }
-			refresh();
-
-        	        break;
+                if(shared_mem->game_msg.my_turn != 0 || shared_mem->game_msg.result != 0){
+        	      if(shared_mem->game_msg.result == 2){
+		      	ret = 1;
+			pthread_exit((void*)&ret);
+			break;
+		      }
+		      break;
 		}
         }
-
+	pthread_exit((void*)&ret);
 }
 
 void waitingRoom(){
@@ -206,7 +208,10 @@ void waitingRoom(){
                 }
 
 		// 엔터를 누르면 무한루프 종료
-                if(c == 10 || c == ' ') break;
+                if(c == 10 || c == ' '){
+			if(shared_mem->wait_msg.opponent_connect == 1)
+				break;
+		}
         }
 	
 	// ready를 선택했을 때
@@ -226,6 +231,7 @@ void waitingRoom(){
 	        p(semid);
 	        shared_mem->wait_msg.ready = 1;
 	        shared_mem->wait_msg.status_change = 1;
+		clock_gettime(CLOCK_MONOTONIC, &shared_mem->start);
 	        v(semid);
 	
 		// player2가 ready상태가 될 때 까지 대기
@@ -270,6 +276,7 @@ void gameRoom(){
 	int xStart = 5, yStart = 3;	// (5,3)에서 시작	
 	int i, k, xPoint = 3;		// 오목판에서 x축으로 3칸씩 움직임 (-+-)
 	int row = 0, column = 0;	// 사용자가 입력한 row, col이 저장
+	void* ret;
 
 	// 사용자의 커서를 (7, 3)으로 이동
 	// 오목판의 좌측상단
@@ -278,16 +285,18 @@ void gameRoom(){
 	// 사용자의 입력을 허용
 	keypad(stdscr, TRUE);	
 	
-	// 화면 새로고침
-	refresh();
+	printOmokBoard();
 
 	while(1){
 		// player2의 턴이 끝날 때 까지 대기
 		pthread_create(&game_thread, NULL, checkGameRoomPlayer2TurnEnd, NULL);
-		pthread_join(game_thread, NULL);
+		pthread_join(game_thread, &ret);
+		printOmokBoard();
+		
+		usleep(100000);
 
 		// player2의 승리일 경우
-		if(shared_mem->game_msg.result == 2){
+		if(*(int*)ret == 1){
 			// 패배 메세지 출력 후 종료
 			mvprintw(yStart + 15, xStart, "Lose...");
 			refresh();
@@ -344,7 +353,7 @@ void gameRoom(){
 		// 사용자가 엔터를 입력했을 때
 		if(c == 10 || c == ' '){
 			// player1의 턴이고 돌이 놓이지 않았을 때
-			if(shared_mem->game_msg.my_turn == 1 && shared_mem->game_msg.omok_board[row][column] == '+'){
+			if(shared_mem->game_msg.omok_board[row][column] == '+'){
 				// 서버에 자기가 놓은 위치와 턴 종료했음을 알림
 				p(semid);
 				shared_mem->game_msg.omok_board[row][column] = 'O';
@@ -353,6 +362,8 @@ void gameRoom(){
 				shared_mem->game_msg.col = column;
 				clock_gettime(CLOCK_MONOTONIC, &shared_mem->start);
 				v(semid);
+				
+				printOmokBoard();
 
 				// 서버가 결과를 판단할 동안 대기
 				usleep(100000);
@@ -454,4 +465,5 @@ void initMenu(){
 
 
 }
+
 
