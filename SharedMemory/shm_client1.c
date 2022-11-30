@@ -8,7 +8,7 @@
 #include "initsem.c"
 
 #define SHMKEY (key_t) 60100		// 공유 메모리 키
-#define SEMKEY 1111			// 세마포어 키
+#define SEMKEY 60102		// 세마포어 키
 
 void initMenu();			// 첫 화면 메뉴 표시 함수
 void initNcurses();			// Ncurses를 사용하기 위한 초기화 함수

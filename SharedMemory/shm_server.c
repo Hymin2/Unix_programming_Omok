@@ -9,8 +9,8 @@
 
 #define SHMKEY1 (key_t) 60100
 #define SHMKEY2 (key_t) 60101
-#define SEMKEY1 1111
-#define SEMKEY2 2222
+#define SEMKEY1 60102
+#define SEMKEY2 60103
 
 // 공유 메모리 ID
 // 세마포어 ID
