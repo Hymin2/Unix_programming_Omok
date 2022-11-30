@@ -21,8 +21,8 @@
 
 typedef struct waitingroom_msg{
         int ready;
-        int oppenent_connect;
-        int oppenent_ready;
+        int opponent_connect;
+        int opponent_ready;
 }waiting_msg;
 
 typedef struct gameroom_msg{
@@ -68,6 +68,9 @@ int main()
 {
 	initMenu();
 
+	close(read_fd);
+        close(write_fd);
+
 	return 0;
 }
 
@@ -89,17 +92,15 @@ void* connectToServer(){
         write(write_fd, &send_msg, sizeof(send_msg));
 
         if ((read_fd = open(read_path, O_RDWR)) == -1){
-                perror("read_fd open error\n");
+                printf("read_fd open error\n");
                 mkfifo(read_path, 0666);
 
                 if((read_fd = open(read_path, O_RDWR)) == -1){
-                         perror("read_fd open error\n");
-                        printf("[SYSTEM] program exit in 3 sec..\n");
+                        printf("read_fd open error\n");
                         sleep(3);
                         exit(1);
                 }
         }
-	
 }
 
 void gameRoom()
@@ -197,7 +198,7 @@ void gameRoom()
 					
 						usleep(100000);
 						if(read(read_fd, &recv_msg, sizeof(recv_msg)) == -1){
-	       						perror("[SYSTEM] Read Error!!\n");
+	       						printf("read error\n");
 						}
 						
 						else{
@@ -240,7 +241,7 @@ void* checkGameRoomMyTurn(){
 	int ret = 0;
 
 	if (read(read_fd, &recv_msg, sizeof(recv_msg)) == -1){
-                perror("[SYSTEM] Read Error");
+                printf("read error\n");
         }
         else{
                 if (recv_msg.g_msg.my_turn == 1) {
@@ -256,7 +257,7 @@ void* checkGameRoomOpponentTurnEnd()
 	int ret = 0;
 
 	if (read(read_fd, &recv_msg, sizeof(recv_msg)) == -1){
-		perror("[SYSTEM] Read Error");
+		printf("read error\n");
 	}
 	else{
 		send_msg.g_msg.omok_board[recv_msg.g_msg.row][recv_msg.g_msg.col] = 'X';
@@ -368,61 +369,69 @@ void waitingRoom()
 	waiting_opponent_status = newwin(1, 7, yStart + 2, xStart + 20);
 
 	WINDOW* ready_box = newwin(3, 15, yStart + 5, xStart);
-	mvwprintw(ready_box, 0, 7, "Ready!!");
+	mvwprintw(ready_box, 1, 4, "Ready!!");
 	box(ready_box, 0, 0);
 
 	keypad(ready_box, TRUE);
 
+
 	refresh();
+
+	pthread_create(&waiting_thread, NULL, checkWaitingRoomOpponentStatus, NULL);
 
 	wrefresh(player1);
 	wrefresh(player1_status);
 	wrefresh(player2);
 	wrefresh(ready_box);
 
-	pthread_create(&waiting_thread, NULL, checkWaitingRoomOpponentStatus, NULL);
 
+	
 	int c;
 
-	c = wgetch(ready_box);
+	while(1){
+		c = wgetch(ready_box);
 
-	if(c == 10 || c == ' '){
-		wattron(ready_box, A_NORMAL);
-		mvwprintw(ready_box, 1, 5, "Ready!!");
-		wattroff(ready_box, A_NORMAL);
-		wrefresh(ready_box);
+		if((c == 10 || c == ' ') && recv_msg.w_msg.opponent_connect == 1){
+			wattron(ready_box, A_NORMAL);
+			mvwprintw(ready_box, 1, 4, "Ready!!");
+			wattroff(ready_box, A_NORMAL);
+			wrefresh(ready_box);
+		
+			touchwin(player1_status);
+			mvwprintw(player1_status, 0, 0, "%s", waiting_status[2]);
+			wrefresh(player1_status);
+		
+			send_msg.w_msg.ready = 1;
+			clock_gettime(CLOCK_MONOTONIC, &send_msg.start);
+		        write(write_fd, &send_msg, sizeof(send_msg));
 	
-		touchwin(player1_status);
-		mvwprintw(player1_status, 0, 0, "%s", waiting_status[2]);
-		wrefresh(player1_status);
-	
-		send_msg.w_msg.ready = 1;
+			pthread_join(waiting_thread, NULL);
+		
+			WINDOW* start = newwin(5, 30, yStart + 5, xStart);
+			for(int i = 0; i < 3; i ++){
+				mvwprintw(start, 0, 0, "Start in %d seconds!!", 3 - i);
+				wrefresh(start);
+				sleep(1);
+			}
+			endwin();
+			gameRoom();
 
-	        write(write_fd, &send_msg, sizeof(send_msg));
-	
-		pthread_join(waiting_thread, NULL);
-	
-		WINDOW* start = newwin(5, 30, yStart + 5, xStart);
-		for(int i = 0; i < 3; i ++){
-			mvwprintw(start, 0, 0, "Start in %d seconds!!", 3 - i);
-			wrefresh(start);
-			sleep(1);
+			break;
 		}
-		endwin();
-		gameRoom();
 	}
-
 }
 
 void* checkWaitingRoomOpponentStatus()
 {
+	usleep(1000000);
 	mvwprintw(waiting_opponent_status, 0, 0, "%s", waiting_status[0]);
 	wrefresh(waiting_opponent_status);
+
 
 	for(int i = 0; i < 2; i++){
 		
 		if(read(read_fd, &recv_msg, sizeof(recv_msg)) == -1){
-			perror("[SYSTEM] Read Error\n");
+			printf("read error\n");
 		}
 		else{
 			if(i == 0){

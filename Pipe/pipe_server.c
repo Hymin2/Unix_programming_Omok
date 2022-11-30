@@ -42,7 +42,7 @@ typedef struct data_msg{
 }data_msg;
 
 void* waitingRoomDataCommunication();
-void printRatingTransferRate(struct timespec start);
+void printRatingTransferRate(struct timespec start, struct timespec end);
 void* gameRoomDataCommunication();
 void* judgeOmok(void* g);
 
@@ -51,9 +51,9 @@ data_msg recv_msg;
 
 int pid[2];
 int read_fd, write_fd[2];
+char path[PATH_SIZE];
 
-int main()
-{
+int main(){
 	pthread_t game_thread, waiting_thread;
 	void* game_thread_return;
 	int i, fd;
@@ -64,6 +64,18 @@ int main()
 	pthread_create(&game_thread, NULL, gameRoomDataCommunication, NULL);
 	pthread_join(game_thread, NULL);
 
+	close(read_fd);
+	close(write_fd[0]);
+	close(write_fd[1]);
+	
+	memset(path, '\0', PATH_SIZE);
+	snprintf(path, PATH_SIZE, "%s%d", TO_CLIENT_FILE, pid[0]);
+	remove(path);
+
+	memset(path, '\0', PATH_SIZE);
+	snprintf(path, PATH_SIZE, "%s%d", TO_CLIENT_FILE, pid[1]);
+	remove(path);
+	remove(FROM_CLIENT_FILE);
 
 	return 0;
 }
@@ -71,7 +83,7 @@ int main()
 void* waitingRoomDataCommunication(){
 	int i, j;
 	int player1_ready = 0, player2_ready = 0;
-	char path[PATH_SIZE];
+	struct timespec end;
 
 	system("clear");
 
@@ -79,22 +91,25 @@ void* waitingRoomDataCommunication(){
 
 	for(i = 0; i < 2; i++){
 		if ((read_fd = open(FROM_CLIENT_FILE, O_RDWR)) == -1){
-                        perror("[SYSTEM] Open Error!!\n");
+                        printf("read_fd open error\n");
                 }
 
                 else if (read(read_fd, &recv_msg, sizeof(data_msg)) == -1){
-                        perror("[SYSTEM] Read Error!!\n");
+                        perror("read error\n");
                 }
                 else{
 			pid[i] = recv_msg.pid;
+			clock_gettime(CLOCK_MONOTONIC, &end);		
+			printRatingTransferRate(recv_msg.start, end);
 
-			printRatingTransferRate(recv_msg.start);
+			printf("player%d connected\n", i + 1);
 		}
 	
 	}
 
 	for(i = 0; i < 2; i++){
-		sprintf(path, "%s%d", TO_CLIENT_FILE, pid[i]);
+		memset(path, '\0', PATH_SIZE);
+		snprintf(path,PATH_SIZE, "%s%d", TO_CLIENT_FILE, pid[i]);
                 mkfifo(path, 0666);
 		if((write_fd[i] = open(path, O_RDWR)) == -1){
 			printf("write_fd open error\n");
@@ -103,51 +118,53 @@ void* waitingRoomDataCommunication(){
         	write(write_fd[i], &send_msg, sizeof(send_msg));		
 	}
 
-	for(i = 0; i < 2; i++)
-        {
-                if ((read_fd = open(FROM_CLIENT_FILE, O_RDWR)) == -1)
-                {
-                        perror("[SYSTEM] Open Error!!\n");
+	for(i = 0; i < 2; i++){
+                if ((read_fd = open(FROM_CLIENT_FILE, O_RDWR)) == -1){
+                        printf("read_fd open error\n");
                 }
 
-                else if (read(read_fd, &recv_msg, sizeof(recv_msg)) == -1)
-                {
-                        perror("[SYSTEM] Read Error!!\n");
+                else if (read(read_fd, &recv_msg, sizeof(recv_msg)) == -1){
+                        printf("read error\n");
                 }
-                else
-                {
+                else{
 			if(recv_msg.w_msg.ready == 1 && recv_msg.pid == pid[0]){
-	                        printRatingTransferRate(recv_msg.start);
+				clock_gettime(CLOCK_MONOTONIC, &end);
+	                        printRatingTransferRate(recv_msg.start, end);
 
 				send_msg.w_msg.oppenent_ready = 1;
                                 write(write_fd[1], &send_msg, sizeof(send_msg));
+
+				printf("player1 is ready\n");
 			}
 			else if(recv_msg.w_msg.ready == 1 && recv_msg.pid == pid[1]){
-	                        printRatingTransferRate(recv_msg.start);
+				clock_gettime(CLOCK_MONOTONIC, &end);
+	                        printRatingTransferRate(recv_msg.start, end);
 
 				send_msg.w_msg.oppenent_ready = 1;
                                 write(write_fd[0], &send_msg, sizeof(send_msg));
+
+				printf("player2 is ready\n");
 			}
                 }
         }
+	printf("game start\n");
 
 }
 
-void printRatingTransferRate(struct timespec start){
-	struct timespec end;
+void printRatingTransferRate(struct timespec start, struct timespec end){
 	double accum;
 
-	clock_gettime(CLOCK_MONOTONIC, &end);
         accum = (end.tv_sec - start.tv_sec) + (double)(end.tv_nsec - start.tv_nsec) / 1000000000;
-        printf("%.9f\n",accum);
+        printf("[Transfer Rate] %.9lf\n",accum);
 }
 
 void* gameRoomDataCommunication(){
 	void* ret;
-	int end = 0;
+	int game_end = 0;
+	struct timespec time_end;
 	pthread_t judge_thread;
 
-	while(end == 0){
+	while(game_end == 0){
 		for(int i = 0; i < 2; i++){
 			send_msg.g_msg.my_turn = 1;
 			write(write_fd[i], &send_msg, sizeof(send_msg));
@@ -159,7 +176,8 @@ void* gameRoomDataCommunication(){
 				printf("read_fd error\n");
 			}
 			else{
-				printRatingTransferRate(recv_msg.start);
+				clock_gettime(CLOCK_MONOTONIC, &time_end);
+				printRatingTransferRate(recv_msg.start, time_end);
 
 				pthread_create(&judge_thread, NULL, judgeOmok, (void*)&recv_msg.g_msg);
                                 pthread_join(judge_thread,(void*) &ret);
@@ -173,7 +191,7 @@ void* gameRoomDataCommunication(){
 					send_msg.g_msg.result = 2;
 					write(write_fd[(i + 1) % 2], &send_msg, sizeof(send_msg));
 
-					end = 1;
+					game_end = 1;
 
 					break;
 				}
@@ -189,6 +207,7 @@ void* gameRoomDataCommunication(){
 
 		}
 	}
+	printf("game is ended\n");
 }
 
 void* judgeOmok(void* g){
@@ -212,7 +231,7 @@ void* judgeOmok(void* g){
 		else cnt = 0;
 
 		if(cnt == 5){
-			if(board[i + 1][col] != 'O'){
+			if(i + 1 == ROW || board[i + 1][col] != 'O'){
 				ret = 1;
 			        pthread_exit((void*)&ret);
 			}
@@ -225,7 +244,7 @@ void* judgeOmok(void* g){
                 else cnt = 0;
 
 		if(cnt == 5){
-                         if(board[row][i + 1] != 'O'){
+                         if(i + 1 == COLUMN || board[row][i + 1] != 'O'){
                                  ret = 1;
                                  pthread_exit((void*)&ret);
                          }
@@ -244,7 +263,7 @@ void* judgeOmok(void* g){
                 	else cnt = 0;
 
 			if(cnt == 5){
-                          if(board[i][col + 1] != 'O'){
+                          if(start_row + i + 1 == ROW || board[start_row + i + 1][start_col + i + 1] != 'O'){
                                   ret = 1;
                                   pthread_exit((void*)&ret);
                           }
@@ -260,8 +279,8 @@ void* judgeOmok(void* g){
                         if(board[start_row + i][start_col + i] == 'O') cnt++;
                         else cnt = 0;
 
-			if(start_col < 15 && cnt == 5){
-                          if(board[start_row + i + 1][start_col + i] != 'O'){
+			if(cnt == 5){
+                          if(start_col + i + 1 == COLUMN || board[start_row + i + 1][start_col + i + 1] != 'O'){
                                   ret = 1;
                                   pthread_exit((void*)&ret);
                           }
@@ -274,12 +293,12 @@ void* judgeOmok(void* g){
 	start_row = row + col;
 	start_col = 0;
 	cnt = 0;
-	for(i = 0; start_row - i < 0; i++){
+	for(i = 0; start_row - i >= 0; i++){
 		if(board[start_row - i][i] == 'O') cnt++;
 		else cnt = 0;
 
 		if(start_row - i - 1 >= 0 && cnt == 5){
-                          if(board[start_row - i - 1][i + 1] != 'O'){
+                          if(start_row - i - 1 == -1 || board[start_row - i - 1][i + 1] != 'O'){
                                   ret = 1;
                                   pthread_exit((void*)&ret);
                           }
@@ -288,7 +307,6 @@ void* judgeOmok(void* g){
 	}
 
 	ret = 0;
-	printf("%d",ret);
 	pthread_exit((void*)&ret);
 
 }
