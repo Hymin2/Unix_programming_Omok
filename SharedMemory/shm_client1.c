@@ -24,6 +24,7 @@ int shmid, semid;
 
 // 쓰레드 변수
 pthread_t waiting_thread, game_thread;
+pthread_mutex_t mutex;
 // 공유 메모리에서 사용할 변수
 data_buf* shared_mem;
 
@@ -63,30 +64,37 @@ void initshm(){
 
 void* checkWaitingRoomPlayer2Status(){
 	// 처음 player2의 상태를 Wait로 출력
+	pthread_mutex_lock(&mutex);
 	mvwprintw(waiting_player2_status, 0, 0, "%s", waiting_status[0]);
         wrefresh(waiting_player2_status);
+	pthread_mutex_unlock(&mutex);
 
 	// player2의 상태가 ready가 될 때 까지 반복
 	while(shared_mem->wait_msg.opponent_ready == 0){
 			// player2가 연결이 안되어있으면 wait 상태 표시
                         if(shared_mem->wait_msg.opponent_connect == 0){
+				pthread_mutex_lock(&mutex);
                                 touchwin(waiting_player2_status);
                                 mvwprintw(waiting_player2_status, 0, 0, "%s", waiting_status[0]);
                                 wrefresh(waiting_player2_status);
+				pthread_mutex_unlock(&mutex);
                         }
 			// player2가 연결되었으면 join 상태 표시
                         else if(shared_mem->wait_msg.opponent_connect == 1){
+				pthread_mutex_lock(&mutex);
                                 touchwin(waiting_player2_status);
                                 mvwprintw(waiting_player2_status, 0, 0, "%s", waiting_status[1]);
                                 wrefresh(waiting_player2_status);
+				pthread_mutex_unlock(&mutex);
                         }
 			// player2가 준비를 하면 ready 상태 표시
                         if(shared_mem->wait_msg.opponent_ready == 1){
+				pthread_mutex_lock(&mutex);
                                 touchwin(waiting_player2_status);
                                 mvwprintw(waiting_player2_status, 0, 0, "%s", waiting_status[2]);
                                 wrefresh(waiting_player2_status);
+				pthread_mutex_unlock(&mutex);
                         }
-			usleep(100000);
 	}
 	// 쓰레드 종료
 	pthread_exit(NULL);
@@ -164,6 +172,8 @@ void waitingRoom(){
 
 	// 대기실의 선택 메뉴
         WINDOW* ready_exit_box = newwin(3, 30, yStart + 5, xStart);
+	mvwprintw(ready_exit_box, 1, 5, "%s", select[0]);
+	mvwprintw(ready_exit_box, 1, 20, "%s", select[1]);
         box(ready_exit_box, 0, 0);
 
 	// 선택 메뉴에서 키보드 사용
@@ -171,47 +181,50 @@ void waitingRoom(){
 
 	// 화면 새로고침
         refresh();
-	
+
+	// player2가 연결 상태를 확인하는 쓰레드 생성
+        pthread_create(&waiting_thread, NULL, checkWaitingRoomPlayer2Status, NULL);
+
+	pthread_mutex_lock(&mutex);
         wrefresh(player1);
 	wrefresh(player1_status);
         wrefresh(player2);
         wrefresh(ready_exit_box);
+	pthread_mutex_unlock(&mutex);
 
-	// player2가 연결 상태를 확인하는 쓰레드 생성
-	pthread_create(&waiting_thread, NULL, checkWaitingRoomPlayer2Status, NULL);
         while(1){
 		// 선택한 메뉴를 표시
-                for(i = 0; i < 2; i++){
-                        if(highlight == i)
-                                wattron(ready_exit_box, A_REVERSE);
-
-                        mvwprintw(ready_exit_box, 1, 5 + i * 15, "%s", select[i]);
-                        wattroff(ready_exit_box, A_REVERSE);
-                }
-
-		// 사용자의 키를 입력 받음
+		pthread_mutex_lock(&mutex);
+		mvwprintw(ready_exit_box, 1, 5 + ((highlight + 1) % 2) * 15, "%s", select[(highlight + 1) % 2]);
+                wattron(ready_exit_box, A_REVERSE);
+	        mvwprintw(ready_exit_box, 1, 5 + highlight * 15, "%s", select[highlight]);
+	        wattroff(ready_exit_box, A_REVERSE);
+		wrefresh(ready_exit_box);
+		pthread_mutex_unlock(&mutex);
+			// 사용자의 키를 입력 받음
 		int c;
-
-                c = wgetch(ready_exit_box);
-
-                switch(c){
-                        case KEY_LEFT:
-                                if(highlight == 0) highlight = 1;
-                                highlight--;
-                                break;
-                        case KEY_RIGHT:
-                                if(highlight == 1) highlight = 0;
-                                highlight++;
-                                break;
-                        default:
-                                break;
-                }
-
+	
+	        c = wgetch(ready_exit_box);
+	
+	        switch(c){
+	        	 case KEY_LEFT:
+	                	 if(highlight == 0) highlight = 1;
+	                        	 highlight--;
+	                         break;
+	                 case KEY_RIGHT:
+	                         if(highlight == 1) highlight = 0;
+	                	         highlight++;
+	                         break;
+	                 default:
+	                         break;
+	        }
+	
 		// 엔터를 누르면 무한루프 종료
-                if(c == 10 || c == ' '){
+	        if(c == 10 || c == ' '){
 			if(shared_mem->wait_msg.opponent_connect == 1)
 				break;
-		}
+			
+		}	
         }
 	
 	// ready를 선택했을 때
