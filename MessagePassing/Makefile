@@ -1,5 +1,5 @@
 CC = gcc
-TARGET = MP_client MP_server
+TARGET = MP_server MP_client
 
 normar: $(TARGET)
 
