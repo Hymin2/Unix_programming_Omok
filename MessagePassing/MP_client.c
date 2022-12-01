@@ -11,8 +11,11 @@
 #include <errno.h>
 #include "mem.h"
 
+<<<<<<< HEAD
 #define CONNECT 32768+1 
 
+=======
+>>>>>>> 488f688557fb7caaa3fc2256cde3e8a02dcc382e
 void initque();
 void initMenu();
 void initNcurses();
