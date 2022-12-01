@@ -51,11 +51,15 @@ void initque(){
 
 void recieveConnection(){
 	int i;
+	struct timespec time_end;
 
 	for(i=0; i<2; i++){	
 		if((msgrcv(mqid, &recv_msg, sizeof(data_buf) - sizeof(long), SERVER, 0)) == -1)
 			perror("msgrcv failed");
 		else{
+			clock_gettime(CLOCK_MONOTONIC, &time_end);
+                        printRatingTransferRate(recv_msg.start, time_end);
+
 			pid[i] = recv_msg.pid;
 			printf("player %d connect\n", i+1);
 		}
@@ -89,10 +93,10 @@ void* waitingRoomDataCommunication(){
 		if(msgrcv(mqid, &recv_msg, sizeof(data_buf) - sizeof(long), SERVER, 0) == -1)
 			printf("msgrcv error\n");
 
-		if(recv_msg.pid == pid[0] && recv_msg.wait_msg.ready == 1){
-			clock_gettime(CLOCK_MONOTONIC, &time_end);
-       			printRatingTransferRate(recv_msg.start, time_end);
+		clock_gettime(CLOCK_MONOTONIC, &time_end);
+                printRatingTransferRate(recv_msg.start, time_end);
 		
+		if(recv_msg.pid == pid[0] && recv_msg.wait_msg.ready == 1){
 			send_msg.mtype = pid[1];
 			send_msg.wait_msg.opponent_ready = 1;
 			if(msgsnd(mqid, &send_msg, sizeof(data_buf) - sizeof(long), 0) == -1)
@@ -101,9 +105,6 @@ void* waitingRoomDataCommunication(){
 			player1_ready = 1;
 		}
 		else if(recv_msg.pid == pid[1] && recv_msg.wait_msg.ready == 1){
-			clock_gettime(CLOCK_MONOTONIC, &time_end);
-        		printRatingTransferRate(recv_msg.start, time_end);
-
 			send_msg.mtype = pid[0];
 			send_msg.wait_msg.opponent_ready = 1;
                         if(msgsnd(mqid, &send_msg, sizeof(data_buf) - sizeof(long), 0) == -1)

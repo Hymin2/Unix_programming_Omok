@@ -26,6 +26,7 @@ void* checkGameRoomMyturn();
 
 
 pthread_t waiting_thread, game_thread, check_myturn_thread;
+pthread_mutex_t mutex;
 
 data_buf send_msg;
 data_buf recv_msg;
@@ -181,12 +182,14 @@ void waitingRoom(){
         keypad(ready_box, TRUE);
 
 	// 화면 새로고침
-        refresh();
-
+        pthread_mutex_lock(&mutex);
+	refresh();
+	
         wrefresh(player1);
 	wrefresh(player1_status);
         wrefresh(player2);
         wrefresh(ready_box);
+	pthread_mutex_unlock(&mutex);
 
 	pthread_create(&waiting_thread, NULL, checkWaitingRoomPlayer2Status, NULL);
         while(1){
@@ -246,9 +249,11 @@ void recieveMessage(){
 }
 
 void* checkWaitingRoomPlayer2Status(){
+	pthread_mutex_lock(&mutex);
 	mvwprintw(waiting_player2_status, 0, 0, "%s", waiting_status[0]);
         wrefresh(waiting_player2_status);
-	
+	pthread_mutex_unlock(&mutex);
+
 	for(int i = 0; i < 2; i++){
 		recieveMessage();
 
@@ -284,7 +289,6 @@ void gameRoom(){
 		pthread_create(&check_myturn_thread, NULL, checkGameRoomMyturn, NULL);
 		pthread_join(check_myturn_thread, &ret);
 		
-		mvprintw(3,0, "%d", *(int*)ret);
 		if(*(int*)ret == 0){
 			pthread_create(&game_thread, NULL, checkGameRoomPlayer2TurnEnd, NULL);
 			pthread_join(game_thread, &ret);
