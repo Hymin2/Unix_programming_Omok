@@ -297,7 +297,7 @@ void* judgeOmok(void* g){
 		if(board[start_row - i][i] == 'O') cnt++;
 		else cnt = 0;
 
-		if(start_row - i - 1 >= 0 && cnt == 5){
+		if(cnt == 5){
                           if(start_row - i - 1 == -1 || board[start_row - i - 1][i + 1] != 'O'){
                                   ret = 1;
                                   pthread_exit((void*)&ret);
