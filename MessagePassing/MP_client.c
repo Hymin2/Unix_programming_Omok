@@ -1,27 +1,15 @@
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/msg.h>
-#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <ncurses.h>
+#include <pthread.h>
 #include <unistd.h>
 #include <string.h>
+#include <ncurses.h>
+#include <signal.h>
 #include <errno.h>
 #include "mem.h"
-
-#define CONNECT 32768+1 
-
-typedef struct DataMessage{
-	long mtype;
-	struct data_buf data;
-	long source;
-}Message_d;
-
-typedef struct MultipleArg{
-	long fd;
-	long id;
-}MultipleArg;
 
 void initque();
 void initMenu();
@@ -29,9 +17,8 @@ void initNcurses();
 void initMemoryData();
 void gameRoom();
 void waitingRoom();
-void sendConnection();
 void sendMessage();
-void receiveMessage();
+void recieveMessage();
 void* checkWaitingRoomPlayer2Status();
 void* checkGameRoomPlayer2TurnEnd();
 void printOmokBoard();
@@ -39,16 +26,21 @@ void* checkGameRoomMyturn();
 
 
 pthread_t waiting_thread, game_thread, check_myturn_thread;
-data_buf mem;
-MultipleArg* mArg;
+
+data_buf send_msg;
+data_buf recv_msg;
+
+long pid;
+int mqid;
 
 char* waiting_status[] = {"Wait", "Join", "Ready"};
-int ret  = 0;
 
 WINDOW* waiting_player2_status;
 
 int main(){
 
+	initque();
+	initMemoryData();
 	initMenu();
 
 	return 0;
@@ -56,20 +48,18 @@ int main(){
 
 
 void initque(){
-	mArg = (MultipleArg*)malloc(sizeof(MultipleArg));
 
-        mArg->fd = msgget((key_t)60109, IPC_CREAT | 0666);
-        if(mArg->fd == -1){
-                printf("error\n");
+        mqid = msgget((key_t)60109, IPC_CREAT | 0666);
+        if(mqid == -1){
+                printf("msgget error\n");
                 exit(0);
         }
-        mArg->id = (long)getpid();
+        pid = (long)getpid();
+	send_msg.pid = pid;
 }
 
 void initMenu(){
 	initNcurses();
-	initque();
-	initMemoryData();
 
 	char* select[] = {"Game Strat", "Exit"};
 
@@ -137,19 +127,22 @@ void initNcurses(){
 }
 
 void initMemoryData(){
-	mem.wait_msg.connect = 0;
-	mem.wait_msg.ready = 0;
-	mem.wait_msg.status_change = 0;
-	mem.wait_msg.opponent_connect = 0;
-	mem.wait_msg.opponent_ready = 0;
-	mem.wait_msg.opponent_change = 0;
+	send_msg.wait_msg.ready = 0;
+	send_msg.wait_msg.opponent_connect = 0;
+	send_msg.wait_msg.opponent_ready = 0;
 
-	mem.game_msg.my_turn = 0;
-	mem.game_msg.result = 0;
-	mem.game_msg.row = 0;
-	mem.game_msg.col = 0;
-	mem.game_msg.turn_end = 0;
+	send_msg.game_msg.my_turn = 0;
+	send_msg.game_msg.row = 0;
+	send_msg.game_msg.col = 0;
+	send_msg.game_msg.result = 0;
+
+	for(int i = 0; i < ROW; i++){
+		for(int k = 0; k < COLUMN; k++)
+			send_msg.game_msg.omok_board[i][k] = '+';
+	}
 }
+
+
 
 void waitingRoom(){
 	initNcurses();
@@ -157,12 +150,10 @@ void waitingRoom(){
 	int i, highlight = 0;
 	int xStart = 5, yStart = 3;
 
-	char* select[] = {"Ready!!", "Exit"};
+	char* select[] = {"Ready!!"};
 	
-	mem.wait_msg.connect = 1;
-	mem.wait_msg.status_change = 1;
-	
-	sendMessage(); // wait_msg.connect = 1	
+	mvprintw(1, 0, "%ld", pid);
+	sendMessage();
 
 	WINDOW* player1 = newwin(5, 15, yStart, xStart);
         box(player1, 0, 0);
@@ -183,11 +174,11 @@ void waitingRoom(){
 	waiting_player2_status = newwin(1, 7, yStart + 2, xStart + 20);
 
 	// 대기실의 선택 메뉴
-        WINDOW* ready_exit_box = newwin(3, 30, yStart + 5, xStart);
-        box(ready_exit_box, 0, 0);
+        WINDOW* ready_box = newwin(3, 15, yStart + 5, xStart);
+        box(ready_box, 0, 0);
 
 	// 선택 메뉴에서 키보드 사용
-        keypad(ready_exit_box, TRUE);
+        keypad(ready_box, TRUE);
 
 	// 화면 새로고침
         refresh();
@@ -195,142 +186,85 @@ void waitingRoom(){
         wrefresh(player1);
 	wrefresh(player1_status);
         wrefresh(player2);
-        wrefresh(ready_exit_box);
+        wrefresh(ready_box);
 
 	pthread_create(&waiting_thread, NULL, checkWaitingRoomPlayer2Status, NULL);
         while(1){
 		// 선택한 메뉴를 표시
-                for(i = 0; i < 2; i++){
-                        if(highlight == i)
-                                wattron(ready_exit_box, A_REVERSE);
+                wattron(ready_box, A_REVERSE);
+                mvwprintw(ready_box, 1, 5, "%s", select[0]);
+                wattroff(ready_box, A_REVERSE);
 
-                        mvwprintw(ready_exit_box, 1, 5 + i * 15, "%s", select[i]);
-                        wattroff(ready_exit_box, A_REVERSE);
-                }
-
+		wrefresh(ready_box);
 		int c;
 
-		c = wgetch(ready_exit_box);
-
-		  switch(c){
-                        case KEY_LEFT:
-                                if(highlight == 0) highlight = 1;
-                                highlight--;
-                                break;
-                        case KEY_RIGHT:
-                                if(highlight == 1) highlight = 0;
-                                highlight++;
-                                break;
-                        default:
-                                break;
-                }
+		c = wgetch(ready_box);
 
 		// 엔터를 누르면 무한루프 종료
-                if(c == 10 || c == ' ') break;
-        }
-	if (highlight == 0){
-		// 선택한 메뉴의 표시 효과 없에기
-		wattron(ready_exit_box, A_NORMAL);
-	        mvwprintw(ready_exit_box, 1, 5, "%s", select[0]);
-	        wattroff(ready_exit_box, A_NORMAL);
-	        wrefresh(ready_exit_box);
-	
-		// player1의 상태를 ready로 변경
-	        touchwin(player1_status);
-	        mvwprintw(player1_status, 0, 0, "%s", waiting_status[2]);
-	        wrefresh(player1_status);
-		
-		mem.wait_msg.ready = 1;
-		mem.wait_msg.status_change = 1;
-	
-		sendMessage();
+                if((c == 10 || c == ' ') && recv_msg.wait_msg.opponent_connect == 1){
+		       	wattron(ready_box, A_NORMAL);
+                	mvwprintw(ready_box, 1, 5, "%s", select[0]);
+                	wattroff(ready_box, A_NORMAL);
+                	wrefresh(ready_box);
 
-		pthread_join(waiting_thread, NULL);
+                	// player1의 상태를 ready로 변경
+                	touchwin(player1_status);
+                	mvwprintw(player1_status, 0, 0, "%s", waiting_status[2]);
+                	wrefresh(player1_status);
+	
+	                send_msg.wait_msg.ready = 1;
+	                sendMessage();
+			
+			pthread_join(waiting_thread, NULL);
 
-		WINDOW* start = newwin(5, 30, yStart + 5, xStart);
-		for(int i = 0; i < 3; i++){
-			mvwprintw(start, 0, 0, "Start in %d seconds!!", 3 - i);
-			wrefresh(start);
-			sleep(1);
+	                WINDOW* start = newwin(5, 30, yStart + 5, xStart);
+	                for(int i = 0; i < 3; i++){
+	                        mvwprintw(start, 0, 0, "Start in %d seconds!!", 3 - i);
+	                        wrefresh(start);
+	                        sleep(1);
+	                }
+	
+       		        endwin();
+
+       		        gameRoom();
+			
+			break;
 		}
-		
-		endwin();
-
-		gameRoom();
-	}
-
-	else{
-		mem.wait_msg.connect = 0;
-		mem.wait_msg.ready = 0;
-		mem.wait_msg.status_change = 0;
-		mem.wait_msg.opponent_connect = 0;
-		mem.wait_msg.opponent_ready = 0;
-		mem.wait_msg.opponent_change = 0;
-		sendMessage();
-
-		endwin();
-		return;
-	}
-}
-
-void sendConnection(){
-	Message_d message;
-	message.mtype = CONNECT;
-	message.source = mArg->id;
-
-	if(msgsnd(mArg->fd, &message, sizeof(message) - sizeof(long), 0))
-                perror("msgsnd failed");
+        }
 }
 
 void sendMessage(){
-	Message_d message;
-	message.mtype = CONNECT;
-	message.data = mem;
-	message.source = mArg->id;
-
-	if(msgsnd(mArg->fd, &message, sizeof(message) - sizeof(long), 0))
-			perror("msgsnd failed");
-			
+	send_msg.mtype = SERVER;
+	clock_gettime(CLOCK_MONOTONIC, &send_msg.start);
+	if(msgsnd(mqid, &send_msg, sizeof(data_buf) - sizeof(long), 0) == -1)
+                printf("msgsnd error\n");
 }
 
-void receiveMessage(){
-	Message_d message;
-	if((msgrcv(mArg->fd, &message, sizeof(message) - sizeof(long), mArg->id, 0))==-1)
-		perror("msgrcv failed");
-	mem = message.data;
+void recieveMessage(){
+	if((msgrcv(mqid, &recv_msg, sizeof(data_buf) - sizeof(long), pid, 0)) == -1)
+		printf("msgrcv error\n");
 }
 
 void* checkWaitingRoomPlayer2Status(){
 	mvwprintw(waiting_player2_status, 0, 0, "%s", waiting_status[0]);
         wrefresh(waiting_player2_status);
 	
-	// player2의 상태가 ready가 될 때 까지 반복
-	while(mem.wait_msg.opponent_ready == 0){
-		receiveMessage();
-		
-		// player2가 연결이 안되어있으면 wait 상태 표시
-                if(mem.wait_msg.opponent_connect == 1){
-                	touchwin(waiting_player2_status);
-                        mvwprintw(waiting_player2_status, 0, 0, "%s", waiting_status[0]);
+	for(int i = 0; i < 2; i++){
+		recieveMessage();
+
+		if(i == 0){
+			mvwprintw(waiting_player2_status, 0, 0, "%s", waiting_status[1]);
+		        wrefresh(waiting_player2_status);
+		}
+		else if(i == 1){
+			mvwprintw(waiting_player2_status, 0, 0, "%s", waiting_status[2]);
                         wrefresh(waiting_player2_status);
-                }
-		// player2가 연결되었으면 join 상태 표시
-                else if(mem.wait_msg.opponent_connect == 1){
-                	touchwin(waiting_player2_status);
-                        mvwprintw(waiting_player2_status, 0, 0, "%s", waiting_status[1]);
-                        wrefresh(waiting_player2_status);
-                }
-			// player2가 준비를 하면 ready 상태 표시
-                if(mem.wait_msg.opponent_ready == 1){
-                	touchwin(waiting_player2_status);
-                        mvwprintw(waiting_player2_status, 0, 0, "%s", waiting_status[2]);
-                        wrefresh(waiting_player2_status);
-                }
-		
+		}
 	}
+	mvprintw(0,0, "%d",recv_msg.wait_msg.opponent_ready);
+	refresh();
 	// 쓰레드 종료
 	pthread_exit(NULL);
-	
 }
 
 void gameRoom(){
@@ -339,31 +273,24 @@ void gameRoom(){
 	int xStart = 5, yStart = 3;
 	int i, k, xPoint = 3;
 	int row = 0, column = 0;
-	ret = 0;
+	void* ret;
 
 	move(yStart, xStart + 2);
 	keypad(stdscr, TRUE);
-	
-	for(i = 0; i<ROW; i++){
-		for(k = 0; k<COLUMN; k++){
-			mem.game_msg.omok_board[i][k] = '+';
-		}
-	}
 
 	printOmokBoard();
-	
-	receiveMessage();
 
 	while(1){
 		pthread_create(&check_myturn_thread, NULL, checkGameRoomMyturn, NULL);
-		pthread_join(check_myturn_thread, NULL);
+		pthread_join(check_myturn_thread, &ret);
 		
-		if(ret == 0){
+		mvprintw(3,0, "%d", *(int*)ret);
+		if(*(int*)ret == 0){
 			pthread_create(&game_thread, NULL, checkGameRoomPlayer2TurnEnd, NULL);
-			pthread_join(game_thread, NULL);
+			pthread_join(game_thread, &ret);
 			printOmokBoard();
 			
-			if(ret == 1){
+			if(*(int*)ret == 1){
 				mvprintw(yStart + 15, xStart, "Lose...");
 				refresh();
 
@@ -381,7 +308,7 @@ void gameRoom(){
 			while(1){
 				printOmokBoard();
 				attron(A_REVERSE);
-				mvprintw(row + yStart, xStart + column * xPoint + 2, "%c", mem.game_msg.omok_board[row][column]);
+				mvprintw(row + yStart, xStart + column * xPoint + 2, "%c", send_msg.game_msg.omok_board[row][column]);
 				attroff(A_REVERSE);
 
 				int c;
@@ -417,18 +344,19 @@ void gameRoom(){
 				}	
 
 				if(c == 10|| c == ' '){
-					if(mem.game_msg.my_turn == 1 && mem.game_msg.omok_board[row][column] == '+'){
-						mem.game_msg.omok_board[row][column]='O';
-						mem.game_msg.row = row;
-						mem.game_msg.col = column;
+					if(send_msg.game_msg.omok_board[row][column] == '+'){
+						send_msg.game_msg.omok_board[row][column]='O';
+						send_msg.game_msg.row = row;
+						send_msg.game_msg.col = column;
 						
 						sendMessage();
 			
 						printOmokBoard();
-
-						receiveMessage();
 						
-						if(mem.game_msg.result == 1){
+						usleep(100000);
+						recieveMessage();
+
+						if(recv_msg.game_msg.result == 1){
 							mvprintw(yStart + 15, xStart, "Win!!");
 							refresh();
 
@@ -455,7 +383,7 @@ void printOmokBoard(){
 	for(int i = 0; i < ROW; i++) {
 		mvprintw(i + yStart, xStart, "|");
 		for (int k = 0; k < COLUMN; k++) {
-			mvprintw(i + yStart, 1 + xPoint * k + xStart, "-%c-", mem.game_msg.omok_board[i][k]);
+			mvprintw(i + yStart, 1 + xPoint * k + xStart, "-%c-", send_msg.game_msg.omok_board[i][k]);
 		}
 		mvprintw(i + yStart, 1 + xPoint * 15 + xStart, "|");
 	}
@@ -463,28 +391,28 @@ void printOmokBoard(){
 }
 
 void* checkGameRoomMyturn(){
-	ret = 0;
+	int ret = 0;
 
-	receiveMessage();
-	if(mem.game_msg.my_turn == 1){
+	recieveMessage();
+	if(recv_msg.game_msg.my_turn == 1){
 		ret = 1;
 		
-		pthread_exit(NULL);
+		pthread_exit((void*)&ret);
 	}
 
-	pthread_exit(NULL);
+	pthread_exit((void*)&ret);
 }
 
 void* checkGameRoomPlayer2TurnEnd(){
-	ret = 0;
+	int ret = 0;
 	
-	receiveMessage();
+	recieveMessage();
 
-	mem.game_msg.omok_board[mem.game_msg.row][mem.game_msg.col] = 'X';
+	send_msg.game_msg.omok_board[recv_msg.game_msg.row][recv_msg.game_msg.col] = 'X';
 
-	if(mem.game_msg.result==2){
+	if(recv_msg.game_msg.result==2){
 		ret = 1;
-		pthread_exit(NULL);
+		pthread_exit((void*)&ret);
 	}
-	pthread_exit(NULL);
+	pthread_exit((void*)&ret);
 }
