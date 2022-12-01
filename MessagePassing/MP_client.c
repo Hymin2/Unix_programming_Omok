@@ -1,13 +1,12 @@
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/msg.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <pthread.h>
+#include <ncurses.h>
 #include <unistd.h>
 #include <string.h>
-#include <ncurses.h>
-#include <signal.h>
 #include <errno.h>
 #include "mem.h"
 
@@ -32,7 +31,7 @@ void gameRoom();
 void waitingRoom();
 void sendConnection();
 void sendMessage();
-void recievedata();
+void receiveMessage();
 void* checkWaitingRoomPlayer2Status();
 void* checkGameRoomPlayer2TurnEnd();
 void printOmokBoard();
@@ -294,7 +293,7 @@ void sendMessage(){
 			
 }
 
-void recieveData(){
+void receiveMessage(){
 	Message_d message;
 	if((msgrcv(mArg->fd, &message, sizeof(message) - sizeof(long), mArg->id, 0))==-1)
 		perror("msgrcv failed");
@@ -307,7 +306,7 @@ void* checkWaitingRoomPlayer2Status(){
 	
 	// player2의 상태가 ready가 될 때 까지 반복
 	while(mem.wait_msg.opponent_ready == 0){
-		recieveData();
+		receiveMessage();
 		
 		// player2가 연결이 안되어있으면 wait 상태 표시
                 if(mem.wait_msg.opponent_connect == 1){
@@ -353,7 +352,7 @@ void gameRoom(){
 
 	printOmokBoard();
 	
-	recieveData();
+	receiveMessage();
 
 	while(1){
 		pthread_create(&check_myturn_thread, NULL, checkGameRoomMyturn, NULL);
@@ -427,7 +426,7 @@ void gameRoom(){
 			
 						printOmokBoard();
 
-						recieveData();
+						receiveMessage();
 						
 						if(mem.game_msg.result == 1){
 							mvprintw(yStart + 15, xStart, "Win!!");
@@ -466,7 +465,7 @@ void printOmokBoard(){
 void* checkGameRoomMyturn(){
 	ret = 0;
 
-	recieveData();
+	receiveMessage();
 	if(mem.game_msg.my_turn == 1){
 		ret = 1;
 		
@@ -479,7 +478,7 @@ void* checkGameRoomMyturn(){
 void* checkGameRoomPlayer2TurnEnd(){
 	ret = 0;
 	
-	recieveData();
+	receiveMessage();
 
 	mem.game_msg.omok_board[mem.game_msg.row][mem.game_msg.col] = 'X';
 
